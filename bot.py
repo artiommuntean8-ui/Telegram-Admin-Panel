@@ -65,6 +65,13 @@ async def assign_ticket_to_operator(operator_id: int):
                 return client_id
     return None
 
+async def is_user_operator(user_id: int) -> bool:
+    """Verifică dacă un ID de utilizator aparține unui operator."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute('SELECT 1 FROM operators WHERE user_id = ?', (user_id,)) as cursor:
+            return await cursor.fetchone() is not None
+
+
 # --- Инициализация бота и диспетчера ---
 
 bot = Bot(token=API_TOKEN)
@@ -129,6 +136,28 @@ async def cmd_close(message: types.Message):
     if next_client:
         await message.answer(f"Следующий клиент из очереди: {next_client}")
         await bot.send_message(next_client, "Оператор подключился к чату.")
+
+@dp.message(Command("queue"))
+async def cmd_queue(message: types.Message):
+    """
+    Comanda pentru operatori: afișează lista clienților aflați în așteptare.
+    """
+    if not await is_user_operator(message.from_user.id):
+        await message.answer("Această comandă este doar pentru operatori.")
+        return
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute('SELECT client_id FROM tickets WHERE status = "waiting" ORDER BY id ASC') as cursor:
+            waiting_clients = await cursor.fetchall()
+
+    if not waiting_clients:
+        await message.answer("Nu există clienți în așteptare în acest moment.")
+        return
+
+    response_text = "Clienți în așteptare:\n"
+    for client_row in waiting_clients:
+        response_text += f"- ID: `{client_row[0]}`\n" # Folosim Markdown pentru a formata ID-ul
+    await message.answer(response_text, parse_mode="Markdown")
 
 @dp.message(F.chat.type == "private")
 async def handle_messages(message: types.Message):
